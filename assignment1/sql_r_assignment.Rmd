@@ -1,0 +1,51 @@
+---
+title: "Assignment 1 - SQL and R"
+author: "Luis Calleja"
+date: "September 10, 2016"
+output: html_document
+---
+
+In this exercise, we will create an R dataframe from a few tables of a Postgres database. The data describes viewer sentiment of movies they watch. 
+
+Five movie goers were asked to provide a rating on six different movies - all of them from 2015. The movies were popular during the time in the box office - receiving recommendations from the New York Times or being in the top 50 of grossing movies for that year.
+
+Several bits of information are recorded for both the critics and movies. Our final dataframe will contains all this information when we run our query.
+
+### Postgres Retrieval
+
+We are working with four tables:  
+ - movie  
+ + critic  
+ * movie_genres  
+ * movie_rating  
+ 
+The dataset from the postgres db is retrieved in the form of a query (*"select"* statement).
+
+First, we establish the connection to the database.
+```{r, echo=FALSE}
+pw='persyy'
+```
+
+```{r}
+library(RPostgreSQL)
+library(dplyr)
+drv<- dbDriver("PostgreSQL")
+con<-dbConnect(drv,dbname='ratings_movies', host='localhost',port=5432 , user='lechuza',password=pw)
+```
+
+With the connections made, let's extract all the data from all the tables and put it in a dataframe.
+```{r}
+w_df<-dbGetQuery(con,'select 
+movie.title, critic.lastname, critic.firstname, movie_ratings.rating, movie_genres.genre 
+from movie_ratings 
+join critic on movie_ratings.critic_id_fkey=critic.critic_id
+join movie on movie_ratings.movie_id_fkey=movie.movie_id
+join movie_genres on movie_genres.movie_id_fkey = movie.movie_id 
+order by movie.title, movie_genres.genre, lastname, firstname;')
+```
+
+Let's take a look at what we have.
+```{r}
+head(w_df,15)
+```
+Finito...
