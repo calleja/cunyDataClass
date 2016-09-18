@@ -1,0 +1,126 @@
+---
+title: "Assignment 2"
+author: "Luis Calleja"
+date: "September 17, 2016"
+output: html_document
+---
+
+```{r}
+library(stringr)
+names <-"555-1239Moe Szyslak(636) 555-0113Burns, C. Montgomery555-6542Rev. Timothy Lovejoy555 8904Ned Flanders636-555-3226Simpson,Homer5553642Dr. Julius Hibbert"
+#Simpson,Homer5553642Dr. Julius Hibbert"
+```
+
+### Question #3a
+Create a vector containing elements of names, then we rearrange the names in cases where last name appears first to arrive at a first name, last name orientation.
+```{r}
+#extract only names... the regex breaks/splits on non alpha or (.,,,_)
+vec<-unlist(str_extract_all(names,"[[:alpha:]., ]{2,}"))
+
+#in cases of commas, rearrange order of name
+rearrange<- function(x) {
+  if(!is.na(str_extract(x,","))){
+    hol<-unlist(str_split(x,","))
+    new<-str_c(hol[2],hol[1],sep=" ")
+    return(new)
+  }  else x
+}
+
+test<-sapply(vec,rearrange)
+
+print(test)
+```
+
+### Question #3b
+Construct a logical vector indicating whether "Rev." or "Dr." appears in the text.
+I provide two ways to accomplish this.
+```{r}
+vec %in% vec[grep("(Rev.|Dr.)",vec)]
+str_detect(vec,"(Rev.|Dr.)")
+```
+
+### Question #3c
+Construct a vector indicating whether a character has a second name. I interpret this to be more than two names after removing for titles, eg. Rev., Dr.
+```{r, eval=FALSE, echo=FALSE}
+unlist(str_extract_all(test[6],"[^\bDr.\b]{2,}[[:alpha:]]{2,}"))
+
+unlist(str_extract_all(test[3],"[^\b(Dr.|Rev.)\b]{2,}[[:alpha:]]{2,}"))
+```
+
+```{r}
+mult.name<-function(x){
+  g<-unlist(str_extract_all(x,"[^\b(Dr.|Rev.)\b][[:alpha:].]{2,}"))
+  g<-str_trim(g,side="both")
+  nom<-unlist(str_split(g, ' '))
+  le<-length(nom)
+  return(le)
+}
+#mult.name(test[2])
+#unlist(str_extract_all(test[4],"[^\b(Dr.|Rev.)\b][[:alpha:]]{2,}"))
+gh<-sapply(test,mult.name)
+gh>2
+```   
+
+### Question #4a
+[0-9]+\\$ describes a string that contains one ore more digits and ends with a dollar sign ("$"). We make use of the double forward slashes \ to force R to interpret the dollar sign to a literal. 
+```{r}
+unlist(str_extract_all("$99.948789$","[0-9]+\\$"))
+unlist(str_extract_all("$99.99$","[0-9]+\\$"))
+```
+### Question #4b
+the "\b" symbol analyzes the entire word; blank spaces are
+treated as element breaks in this example.
+
+The word must begin and end with a letter... notice how the first line does not return any matches. Forward slash b (\ b) forces whole word matching, we place another forward slash in front of it to serve as an escape character.
+```{r}
+unlist(str_extract_all("yoo7","\\b[a-z]{1,4}\\b"))
+unlist(str_extract_all("yoot","\\b[a-z]{1,4}\\b"))
+
+#unlist(str_extract_all("boo trip cam fgu7","\\b[a-z]{1,4}\\b"))
+# compare without the requires that it end and start with a "b"
+#unlist(str_extract_all("boob7oa","b[a-z]{1,4}b"))
+```
+
+### Question #4c
+With ".*?\\.txt$", we are looking for a file that ends in a ".txt". the double forward slashes serve as an escape for the period, so that R interprets it as a literal. The "?" symbol allows for flexibility - removing the requirement of a character in front of the ".txt".
+```{r}
+unlist(str_extract_all("67call.txt",".*?\\.txt$"))
+# asterisks = the preceding item will be 
+#matched zero or more times
+unlist(str_extract_all(".txt",".*?\\.txt$"))
+```   
+
+### Question #4d
+"d" here is a symbol representing all digits [0-9]. Specifically, d{2} = any two digits - one following the other.
+```{r}
+# "\\d" = any digit
+unlist(str_extract_all("99/45/19878","\\d{2}/\\d{2}/\\d{4}"))
+#returns nothing, because the pattern is not sequential
+unlist(str_extract_all("99jk/45/19878","\\d{2}/\\d{2}/\\d{4}"))
+```
+
+### Question #4e
+Using syntax "<(.+?)>.+?</\\1>" we are looking for html elements. We ensure that each element is returned whole by invoking the callback feature - "\\1" ensuring that whatever text appeared in between the paranthesis at the beginning of the pattern, also appears at the end.
+```{r, eval=FALSE, echo=FALSE}
+unlist(str_extract_all("</","<(.+?)>.+?</\\1>"))
+# "?" = at most once, but optional
+unlist(str_extract_all("<(jj)>4","<(.+?)>.+?"))
+#notice how this returns nothing
+unlist(str_extract_all("<(jj)>4jog","<(.+?)> .+"))
+#this will return the entire string: "<(jj)>4jog"
+unlist(str_extract_all("<(jj)>4jog","<(.+?)>.*"))
+#the paranthesis serve for framing a phrase we will 
+#backreference later in the regex
+unlist(str_extract_all("<jj>4jog","<(.+?)>.*"))
+```
+
+```{r}
+unlist(str_extract_all("<head> Title Header </head>","<(.+?)>.+?</\\1>"))
+```
+
+```{r, echo=FALSE,eval=FALSE}
+unlist(str_extract_all("<jj>4</j>","<(.+?)>.+?</\\1>"))
+#appears as though the "?" symbol has a different impact if 
+#placed at the end of the regex
+unlist(str_extract_all("<head>Te</head>","<(.+?)>.+?"))
+```
