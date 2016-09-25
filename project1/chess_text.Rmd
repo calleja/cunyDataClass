@@ -1,0 +1,241 @@
+---
+title: "Project 1 - Text Mining Chess Data"
+author: "Luis Calleja"
+date: "September 19, 2016"
+output: html_document
+---
+
+```{r, echo=FALSE}
+library(stringr);library(plyr);library(ggplot2)
+```
+In this project, the Output goal is a dataframe with the following informaiton (in order): player's name, player's state, total # of points, player's pre-rating, avg pre chess rating of opponents.
+```{r, warning=FALSE}
+g<-file('/home/lechuza/Documents/CUNY/data_class/project1/tournamentinfo.txt')
+raw<-readLines(g)
+```
+ReadLines (above) splits on line breaks; however, each player spans two lines. In order to get the desired output of one line per player, we'll apply regex to concatenated elements and split on "-{3,}" (dashes).
+
+```{r}
+#raw_c<-str_c(raw[-(0:4)])
+raw_c<-paste(raw[-(0:4)], collapse = '')
+```
+
+
+Investigate that the collapse did not result in unintended results
+```{r, eval=FALSE}
+#ouput supressed
+nchar(raw_c)
+g<-sapply(raw,nchar)
+sum(g)
+```
+The lengths/number of characters are nearly the same, so we are good.
+
+```{r}
+raw_split<-unlist(str_split(raw_c,"-{3,}"))
+```
+Commence string extraction; the convenient feature is that 
+we can do our computations at the local level, then apply 
+it to the vector elements as a vector function
+
+###Text extraction
+We start with name.
+
+We know that names appear in the second slot, so we could split
+on the pipe "|" then run the regex.
+
+```{r, eval=FALSE, echo=FALSE}
+# a test
+raw_split[3]
+#let's first split on the pipe "|"... have to use escape syntax
+check<-unlist(str_split(raw_split[3],"\\|"))
+```
+Let's run this string split on the entire vector to determine
+how normalized is the data. We will run some diagnostics, ie ensure equal number of elements created from the split.
+
+```{r}
+spl.1<-function(x) {
+  unlist(str_split(x,"\\|"))
+}
+te.1<-sapply(raw_split,spl.1,USE.NAMES = FALSE)
+te.1<-te.1[-65]
+```
+
+```{r, eval=FALSE}
+#output suppressed
+#ensure equal number of elements for all vectors
+gf<-sapply(te.1,function(x) length(unlist(x)))
+any(gf!=21)
+```
+The above proves that each player field has 21 elements. Hence the data is normalized and can be placed in a structured object.
+
+```{r}
+h<-data.frame(sapply(te.1,function(x) rbind(unlist(x))),stringsAsFactors = FALSE)
+```
+
+Let's clean up each element in the dataframe and transpose it.
+```{r, echo=FALSE, eval=FALSE}
+#originally whigged because colwise() wasn't working properly, but then it started working...
+#str_trim is a vectorized function
+
+#doesn't work... returns levels
+h.1<-data.frame(sapply(h,MARGIN=2,str_trim,side="both"))
+
+rig<-function(x){
+  as.character(str_trim(x))
+}
+#doesn't work because returns levels
+h.2<-data.frame(apply(h,MARGIN=2,rig))
+```
+
+```{r}
+#works as intended
+#dr<-as.character(str_trim(h[,4]))
+h.1<-colwise(str_trim)(h)
+#transpose the dataframe
+h.t<-as.data.frame(t(h.1),stringsAsFactors = FALSE)
+#convert all these factors to characters
+
+#put column names on the dataframe...
+```
+
+We can start to build the 'production' dataframe. First we create one with the player's name and state:
+```{r}
+#h.t[1:5,3]
+final<-h.t[,c(2,11,3)]
+names(final)<-c('name','state','total.pts')
+head(final)
+```
+
+Extract pre-rating from 12th column.
+```{r, echo=FALSE, eval=FALSE}
+# 1436P23
+h.t[61,12]
+str_sub(b,0,-2)
+str_trim(unlist(str_extract_all(h.t[39,12],"([[:digit:]]){2,}P.+?(?=-)")))
+#http://stackoverflow.com/questions/7124778/how-to-match-anything-up-until-this-sequence-of-characters-in-a-regular-expres
+
+#combine the above with 
+str_trim(unlist(str_extract_all(x," ([[:digit:]]){2,} ")))
+```
+
+There are a couple of iterations on how the pre-rating appears in the data, we combine regex to mine for both with an 'OR' operation.
+```{r}
+#h.t[39,12]
+#str_trim(unlist(str_extract_all(h.t[39,12]," ([[:digit:]]){2,} |([[:digit:]]){2,}P.+?(?=-)")))
+
+#we'll run two operations... first the initial extract, then we'll remove all p
+xtract.prerating<-function(x){
+  str_trim(unlist(str_extract_all(x," ([[:digit:]]){2,} |([[:digit:]]){2,}P.+?(?=-)")))
+}
+
+j<-sapply(h.t[,12],xtract.prerating)
+
+dig<-function(x) {unlist(str_extract_all(x,"[[:digit:]]{3,}"))}
+final$pre.rating<-as.numeric(sapply(j,dig))
+names(final)[1:3]<-c('name', 'state', 'total.points')
+head(final)
+```
+
+```{r, eval=FALSE, echo=FALSE}
+"'in the below, we try to arrive at selection for numbers until an alpha character is reached. Although our syntax works, we're still left with multiple elements if we include an '|' operator - necessary so that we capture those scores that do not include an alpha chharacter. We model the syntax after the one used on the initial step, where we force a stop at P (see above) '"
+
+#([[:digit:]]){2,}P.+?(?=-)") - previous code from initial step
+unlist(str_extract_all(j[41],"[[:digit:]]{2,}")) #works
+
+dig<-function(x) {unlist(str_extract_all(x,"([[:digit:]]){2,}?(?=[A-Z])|[[:digit:]]{2,}"))}
+dig(j[23])
+dig(j[61])
+w<-unlist(sapply(j,dig))
+```
+
+Calculate the average pre-chess rating of opponents. This requires a look-up of player number then a calculation.
+
+Opponent ids are stored in columns [4:10] on the 'h.t' (raw) dataframe. I'll need to create a function that extracts the numeric portion from each of these fields which then looks up that player's pre-rating, and ultimately taking the mean from all of the opponents played. 
+
+First do some data exploring to ensure that null values are not present.
+I do this by creating a vector containing all of the opponents per player.
+```{r}
+#consider re-concatenating the columns for later application of regex
+f<-str_c(h.t$V4,h.t$V5,h.t$V6,h.t$V7,h.t$V8,h.t$V9,h.t$V10,sep=" ")
+
+#create function to extract digits
+opp.f<-function(x){unlist(str_extract_all(x,"[[:digit:]]{1,}"))}
+rt<-sapply(f,opp.f)#working with a list
+tr<-lapply(rt,unlist)
+v<-sapply(rt,length)
+names(v)<-NULL
+any(v!=6)
+```
+
+We see that indeed some players play more and less than others.
+```{r}
+table(v[v!=6])
+#can index like this because of normalization
+head(h.t[v!=6,4:10])
+#ensure that no player has a null or 0 pre-rating
+#anyNA(final[,4])
+```
+
+This data exploration informs us that not all players have played 6 rounds, and so the function we build must be able to handle this.
+```{r}
+#rt[1] #a list
+#unlist rt, using lapply, do a lookup and calculate the mean
+look<-function(x){ 
+  k<-as.numeric(unlist(x))
+  mean(final[k,4])
+}
+#names(d)<-NULL
+final$pre.opp<-sapply(tr,look)
+```
+
+
+```{r, eval=FALSE, echo=FALSE}
+#Name extraction function building:
+xtract.nom<-function(x){
+  nom<-unlist(str_extract_all(x,"[:alpha:]+ [:alpha:]+{2,}"))
+  return(nom)
+}
+tre<-sapply(raw_split[4],xtract.nom)
+
+unlist(str_extract_all(raw_split[4],"[[:alpha:]]+ [[:alpha:]]+"))
+#pg 203
+unlist(str_extract_all(raw_split[4],"( [[:alpha:]]+ ){2,}"))
+
+test<-"| mama mia   | 45 | ma"
+unlist(str_extract_all(test,"\\b| +[[:alpha:] ]{3,} +|\\b"))
+unlist(str_extract_all(test,"\\|[ [:alpha:]]+ +\\|"))
+unlist(str_extract_all(test,"\\| +[[:alpha:] ]{2,}"))
+unlist(str_count(test, "\\| +\\w+ +\\|"))
+
+unlist(str_extract_all(raw_split[3],"[[:alpha:]]{2,}"))
+
+
+#"[[:alpha:]]
+unlist(str_extract_all(j[3],"[[:alpha:]]{2,}"))
+#assumes everyone only has two names
+unlist(str_extract_all(j[3],"[[:alpha:]]+ [[:alpha:]]+"))
+```
+
+Before exporting to a csv, let's do a visualization of the data to look for outliers.
+
+First, we'll plot a histogram of player pre-ratings... we'll then compare this to a histogram of average opponent pre-ratings.
+```{r, warning=FALSE, message=FALSE}
+#names(final)
+ggplot(final, aes(final$pre.rating))+geom_histogram()+labs(title="Player's Pre-Rating Distribution")
+```
+
+```{r, warning=FALSE, message=FALSE}
+ggplot(final, aes(final$pre.opp))+geom_histogram()+labs(title="Average Rating of Player Opponent")
+```
+
+Last thing... let's check that outlier player rating < 400...
+```{r}
+final[final$pre.rating==377,]
+h.t[46,1:12]
+```
+I think we're good: the regex extracted ratings the same way the other players' ratings were. We confirmed using the sample on the project direction sheet.
+
+Finally, write this out to a csv:
+```{r, eval=FALSE}
+write.csv(final,'your/directory/chess.csv')
+```
