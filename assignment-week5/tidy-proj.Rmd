@@ -1,0 +1,123 @@
+---
+title: "Week 5 Assignment"
+author: "Luis Calleja"
+date: "September 30, 2016"
+output: html_document
+---
+In this report we compare on-time performance between two carriers: AM West and Alaska Airlines. Our dataset is the ontime and delay frequency for multiple airports over the same sample period.
+```{r, message=FALSE}
+library(dplyr);library(tidyr);
+library(ggplot2)
+```
+
+```{r}
+raw<-read.csv('~/Documents/CUNY/data_class/week4-tidyData/flights.csv')
+raw_tbl<-tbl_df(raw)
+#raw_tbl
+```
+
+For efficient analysis, we will transform the data into a long format.
+```{r}
+#names(raw)
+raw.c<-raw[complete.cases(raw),]
+#raw_tbl[complete.cases(raw_tbl),]
+```
+
+We need to normalize the data and fill in missing values in the 'carrier' field. I'll show how to do this using base R and tidyr.
+
+Base R:
+```{r}
+names(raw.c)[1:2]<-c('carrier','track')
+#some prep work
+g<-raw.c %>%
+  gather(destination,freq,Los.Angeles:Seattle) 
+
+g[g$carrier=='',1]<-rep(c('Alaska','AM WEST'),I(length(g$carrier)/4))
+
+head(g)
+```
+Using tidyr functions:
+```{r}
+h<-raw.c %>%
+  gather(destination,freq,Los.Angeles:Seattle) %>%
+  mutate(carrier.c=as.character(carrier), carrier.1=ifelse(carrier.c=='',lag(carrier.c),carrier.c)) %>%
+  select(carrier.1,track:freq)
+
+head(h)
+```
+
+```{r, echo=FALSE,eval=FALSE}
+length(g$carrier)/2
+g[g$carrier=='',1]=rep(c('Alaska','AM WEST'),5)
+
+h<-g %>%
+  filter(carrier=='') %>%
+  mutate(carrier2=rep(c('Alaska','AM WEST'),I(length(carrier)/2)))
+
+h<-g %>%
+  mutate(carrier2=ifelse(carrier!='',carrier,rep(c('Alaska','AM WEST'),I(length(carrier)/2))))
+
+raw.c %>%
+  gather(destination,freq,Los.Angeles:Seattle) %>%
+  spread(carrier,c(destination,freq))
+
+  mutate(carrier2=ifelse(carrier!='',carrier,rep(c('Alaska','AM WEST'),I(length(carrier)/2))))
+```
+
+### Final Step
+Perform analysis to compare the arrival delays for the two airlines using dplyr and the grouping and summarise functions.
+
+First statistic is the proportion of tardiness by carrier and city. Having this, we calculate average rank across all cities for the carriers (using the min_rank() function).
+
+```{r, echo=FALSE,eval=FALSE}
+tbl_df(g)
+#mutate performs function on entire columns, unless we apply grouping
+g %>%
+  mutate(total=cumsum(freq))
+vignette("window-functions")
+
+#discover the minimum number of delays by carrier
+g %>%
+  mutate(min_rank=min_rank(freq))
+```
+
+```{r}
+h.1<-h %>%
+  group_by(carrier.1,destination) %>%
+  mutate(total=sum(freq), prop=round(freq/total,2))
+
+head(h.1)
+
+h.1 %>%
+  group_by(destination) %>%
+  filter(track=='delayed') %>%
+  mutate(rank=min_rank(prop)) %>%
+  select(-c(freq:prop))
+```
+Alaska Airlines is the best performer (relative to its own activity) for each airport.
+
+We prove this by looking at average rank across airport:
+```{r}
+h.1 %>%
+  group_by(destination) %>%
+  filter(track=='delayed') %>%
+  mutate(rank=min_rank(prop)) %>%
+  ungroup() %>%
+  group_by(carrier.1) %>%
+  summarise(avg.rank=mean(rank))
+```
+### Graphics
+We run some charts to display volatility/distribution of delay proportions by carrier.
+```{r}
+#boxplot of proportional delays by destination
+ggplot(h.1[h.1$track=='delayed',],aes(x=carrier.1,y=prop))+geom_boxplot()+ggtitle("Variance in delays by Carrier")+labs(x="Carrier",y="proportion of delays")
+```   
+The plots demonstrates how much more tardy AM West tends to be: 75% of AM Wests service has a higher proportion of delays than the typical delay at Alaska Airlines.
+
+The below plot shows a destination-by-destination view of the proportion delayed. There is an overarching dominance by AM West.
+```{r}
+ggplot(h.1[h.1$track=='delayed',],aes(y=prop,x=factor(destination),fill=factor(carrier.1),color=factor(carrier.1)))+geom_bar(stat="identity",position="dodge")+theme(axis.text.x=element_text(angle=45, hjust=1))+ggtitle("Proportion of Delays by City")+labs(x="Destination",y="proportion of delays")
+```
+
+### Conclusion
+Alaska performs better by way of proportion of flights delayed to on time arrival. This study readily lends itself to a Bayesian probability estimation model. With the model we would estimate the probability of being delayed given a destination airport and particular carrier.
