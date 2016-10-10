@@ -1,0 +1,162 @@
+---
+title: "Beta - project 2"
+author: "Luis Calleja"
+date: "October 3, 2016"
+output: html_document
+---
+In this analysis we will calculate changes in growth rates year-over-year by state and region. The dataset is from the US Census Bureau. Each row is an observation: point in time population of a state across five years.
+
+Other analysis, should I chose:
+
+Year over year change in population by state
+Year over year change in population by region of the US 
+Overall US population growth
+Using this file to calculate population rates  for some condition you are interested in.
+```{r, message=FALSE, warning=FALSE}
+library(tidyr);library(dplyr);
+#install.packages('gdata')
+library(gdata)
+library(stringr)
+```
+
+Import the raw data file as uploaded by fellow classmate.
+```{r}
+pop<-read.xls("~/Documents/CUNY/data_class/project2/NST-EST2014-01.xlsx",header=FALSE, stringsAsFactors=FALSE)
+pop.1<-pop[-(1:3),]
+#each vector in the raw dataframe is a factor, so let's convert
+#sapply(pop.1,class)
+```
+
+```{r,echo=FALSE,eval=FALSE}
+#the below is not necessary after adding stringsAsFactors=FALSE to read.xls
+#doesn't work
+#pop.2<-data.frame(sapply(pop.1,as.character))
+pop.2<-data.frame(lapply(pop.1,as.character),stringsAsFactors = FALSE)
+sapply(pop.2,class)
+pop.tbl<-tbl_df(pop.2)
+```
+
+Some light data conversions and column renaming.
+```{r}
+names(pop.1)<-pop.1[1,] #rename columns
+names(pop.1)[1]<-'geographic.area'
+pop.2<-pop.1[-1,]
+
+#remove commas and convert vectors to numeric
+g<-data.frame(lapply(pop.2[,-1],function(x) { as.numeric(gsub(',','',x))}),stringsAsFactors=FALSE)
+
+#sapply(g,class)
+#rebind vector to dataframe
+g$geographic.area<-pop.2$geographic.area
+
+#str_extract all returns strings, so this assignment should work
+names(g)[3:7]<-unlist(str_extract_all(names(g),"[[:digit:]]{2,}"))
+```
+
+Having a look at the data after this preliminary cleanup:
+```{r}
+head(g)
+names(g)
+```
+For the first study, only the state and yearly population measurements are relevant. I break those out here.
+```{r}
+#states start with ".", so we filter rows (observations on state) here.
+te<-g %>%
+  filter(grepl("^\\.",geographic.area))
+
+#carve out the data relevant to this study
+g.1<-te %>%
+  select(-c(Census,Estimates.Base))
+head(g.1)
+```
+
+Put data into long format: one variable per column, which will create  row for each state and year combination. This will facilitate aggregate and state-scope studies. Later, because we are measuring growth, we will group by state ('geographic area').
+Lastly, we apply a "lead()" to calculate year-over-year change in population.
+```{r}
+#adjust column names because the gather() function doesn't accept numeric arguments
+names(g.1)<-sapply(names(g.1),function(x) {ifelse(str_detect(x,"[[:digit:]]{2,}"),paste("x",x,sep=""),x)})
+
+j<-g.1 %>%
+  gather(year,pop,x2010:x2014) %>%
+  arrange(geographic.area,year) %>%
+  group_by(geographic.area) %>%
+  mutate(growth=((pop/lag(pop))-1)*100)
+```
+
+Let's look at average growth throughout this time period.
+```{r}
+final<-j %>%
+  ungroup() %>%
+  group_by(geographic.area) %>%
+  summarise(mean.growth=mean(growth,na.rm=TRUE)) %>%
+  arrange(mean.growth)
+```
+
+Let's take a look at the highest growing and lowest growing states:
+```{r}
+head(final);tail(final)
+```
+
+Sure, the average growth rates are all positive, however, throughout this time period do all the states show an upward (positive) linear trend?
+```{r}
+ext<-function(x) {x$coefficients[2][[1]]}
+
+#convert year to numeric, run a linear regression on the groups, extract the relevant coefficient
+j.1<-j %>%
+  mutate(num.year=as.numeric(unlist(str_extract_all(year,"[[:digit:]]{2,}")))) %>%
+  group_by(geographic.area) %>%
+  do(model = lm(growth~num.year, data = .)) %>%
+  mutate(growth.coefficient=ext(model)) %>%
+  select(-model) %>%
+  arrange(growth.coefficient)
+```
+### Conclusion
+Arguably, states with lowest momentum for growth:
+```{r}
+head(j.1)
+```
+
+States with highest growth momentum:
+```{r}
+tail(j.1)
+```
+
+```{r, echo=FALSE,eval=FALSE}
+j.1$model[[1]]$coefficients[2][[1]]
+
+#wish this worked...
+  summarise(ols.growth=lm(growth~num.year,data=.)$coefficients[2])
+
+fitted_models = d %>% group_by(state) %>% do(model = lm(response ~ year, data = .))
+
+sapply(j.1,class)
+
+bama<-j %>%
+  filter(geographic.area==".Alabama")
+bama<-bama %>%
+  mutate(num.year=as.numeric(unlist(str_extract_all(year,"[[:digit:]]{2,}"))))
+test<-lm(data=bama,growth~num.year)$coefficients[2]
+
+
+
+texas<-j %>%
+  filter(geographic.area==".Texas")
+texas<-texas %>%
+  mutate(num.year=as.numeric(unlist(str_extract_all(year,"[[:digit:]]{2,}"))))
+test<-lm(data=texas,growth~num.year)
+summary(test)
+
+illinois<-j %>%
+  filter(geographic.area==".Illinois")
+illinois<-illinois %>%
+  mutate(num.year=as.numeric(unlist(str_extract_all(year,"[[:digit:]]{2,}"))))
+test<-lm(data=illinois,growth~num.year)
+summary(test)
+
+g<-data.frame(lapply(pop.2[,-1],function(x) { as.numeric(gsub(',','',x))}),stringsAsFactors=FALSE)
+```
+
+###Future studies
+No doubt much growth is in the form of immigration and births, and not necessarily interstate migration. To somewhat normalize for this, assuming that the death rates are equal among all states, which states are growing more than the national average?
+
+To reduce bias, we can remove the state in question from the mean calculation.

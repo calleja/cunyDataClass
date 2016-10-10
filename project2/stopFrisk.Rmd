@@ -1,0 +1,129 @@
+---
+title: 'Project 2- Part III: Stop and Frisk'
+author: "Luis Calleja"
+date: "October 6, 2016"
+output: html_document
+---
+The dataset in this subproject comes from NYPD stop and frisk program: All stop and frisk cases in NYC for 2014. 
+
+Each observation is a 'stop' case. Each stop case has several attributes such as location, identification of parties, and also the outcome of the stop: a frisk, a search, an arrest, and furthermore attributes of those outcomes.
+
+We will answer the following query:
+Frisk "failure" rates based on explanation of search.
+
+```{r, message=FALSE,warning=FALSE}
+library(tidyr);library(dplyr);library(stringr)
+```
+
+```{r}
+#raw<-read.csv('G:/Property/Luis_C/statsLearning/CUNY/dataClass/project2/2014_sqf_csv/2014_slim.csv',stringsAsFactors = FALSE,header=1)
+
+raw<-read.csv('~/Documents/CUNY/data_class/project2/2014_slim_new.csv',stringsAsFactors = FALSE,header=1)
+```
+
+Define a frisk failure. We identify two fields that may serve to categorize a failure/success outcome:
+*arstmade, sumissue*
+```{r}
+table(raw$arstmade)
+
+table(raw$sumissue)
+```
+Without having access to in-depth descriptions of the interactions between these data points, we derive them from analyzing the dataset.
+
+Are there observations (stop cases) with multiple true values (row="Y") between the arrest made and summons issued?
+```{r}
+te<-raw %>%
+  select(key,sumissue,arstmade) %>%
+  gather(type,success,c(sumissue,arstmade)) %>%
+  group_by(key) %>%
+  summarise(count=length(success[success=='Y']))
+
+table(te$count)
+```
+This confirms that there are observations in the dataset where the officer will record an arrest and a summons issuance. This informs our calculation for proportion of success later.
+
+Before moving on, let's run a similar script to determine if officers always record a *reason for frisk* along with a *reason for stop*. This will give us a clear picture on how to properly measure success/failure of a stop and reason for a stop.
+
+Columns describing reason for search being with **'rf**... reason for stop begins with **'cs'**. We begin an 'either, or' comparison of these values by looking at frequencies of co-observance in the data.
+
+Let's check the distribution of the amount of reasons that can be given for a stop - independent of whether a search or frisk was carried out.
+```{r}
+r="^(cs|rf)_"
+tes<-raw %>%
+  select(matches(r))
+
+tes$key<-raw$key
+
+tes.1<-tes %>%
+  gather(type,success,-key) %>%
+  group_by(key) %>%
+  summarise(count=length(success[success=='Y']))
+
+table(tes.1$count)
+```
+The distribution reveals that there are indeed many cases where more than one reason for stop is recorded.
+
+This motivates another look: will officers always record a reason for stop independent of a frisk?
+
+We research this by assigning two categories: a reason for a stop is provided, and a reason for frisk is provided - these are independent and not mutually exclusive.
+```{r}
+#success == 'Y' if the reason for stop and search is categorized by the value in 'type' field
+tes.3<-tes %>%
+  gather(type,success,-key) %>%
+  mutate(group=ifelse(success=='Y',substr(type,1,1),''))
+  
+#head(tes.3[tes.3$group!='',])
+tes.4<-tes.3 %>%
+  filter(group!='') %>%
+  group_by(key,group) %>%
+  summarise(groups=max(group))
+
+#make sure this works:
+tes.4 %>%
+  group_by(key) %>%
+  summarise(len=length(groups)) %>%
+  select(len) %>%
+  table()
+#it does
+```
+
+If they search, do they always record a reason for stop?
+
+```{r}
+#length(unique(tes.3[tes.3$group!='','key'])) #34,927
+gy<-tes.4 %>%
+  group_by(key) %>%
+  mutate(len=length(groups)) %>%
+  spread(groups,group) %>%
+  filter(!is.na(r)) 
+
+table(gy$c)
+```
+This table proves that there is always a "reason for stop" code entered whenever there is a search. We'll use the stop code and not the frisk code for the reason code, with this new-found confidence that a code is recorded for each stop, regardless a frisk.
+
+Now determine success:
+Success is determined when *either* an arrest or a summons is made. We recode the dataframe here.
+
+As stated earlier, reasons for stop codes begin with 'cs'
+
+For our last calculation we calculate the proportion of successes per each 'cs' category.
+```{r}
+r="^(cs_)|arstmade|sumissue|key"
+
+#categorize a success/failure as arrest or summons issued
+pre<-raw %>%
+  select(matches(r)) %>%
+  mutate(success=ifelse(arstmade=='Y'|sumissue=='Y','Y','N'))
+
+blah<-pre %>%
+  select(-c(arstmade,sumissue)) %>%
+  gather(reason.stop,value,cs_objcs:cs_other) %>%
+  filter(value=='Y') %>%
+  group_by (reason.stop) %>%
+  summarise(prop=length(key[success=='Y'])/length(key))
+
+blah
+```
+
+###Conclusion
+Type I errors are strongest for 'cs_casng': REASON FOR STOP - CASING A VICTIM OR LOCATION and  'cs_lkout': REASON FOR STOP - SUSPECT ACTING AS A LOOKOUT. The city should weigh the legal rammifications of type I errors and these kinds of stops. It may not be prudent to stop individuals for these reasons alone.

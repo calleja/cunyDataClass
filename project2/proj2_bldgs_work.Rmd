@@ -1,0 +1,130 @@
+---
+title: "DOB Data"
+author: "Luis Calleja"
+date: "October 4, 2016"
+output: html_document
+---
+Deriving the amount of material alterations and new construction in the Bronx from Department of Buildings (DOB) data is an excellent exercise in data manipulation and transformation. Job application filings information is provided in a wide dataset from Open NYC. 
+
+Each observation in the dataset is a "Job". There can be multiple jobs for a permit and building. Jobs are filed for specific kinds of work. Work includes alterations, additions, demos, etc. Based on a criteria, subcomponents of a project will require multiple job applications. Lending to larger study on density of physical activity, we will determine how this data should be grouped to efficiently and accurately represent activity.
+
+For an exploratory study, we run some summary statistics on job types to determine the association with value. Later we will try to glean from the data the jobs that are not as meaningful and can safely be discarded in our broader study. We build on our conclusions to determine a strategy for physical activity aggregation: Should the dollar cost associated with each job be rolled up to the Building ID level to determine activity for the building? Also, is there a hierarchy of job types that allows for representation with a single code?
+
+```{r, message=FALSE, warning=FALSE}
+#install.packages('tidyr')
+library(tidyr);library(dplyr)
+library(stringr); library(ggplot2)
+#dob<-read.csv('G:/Property/Luis_C/statsLearning/CUNY/dataClass/project2/DOB_Job_Application_Filings.csv',header=TRUE,stringsAsFactors=FALSE)
+
+#dob<-read.csv('G:/Property/Luis_C/statsLearning/CUNY/dataClass/project2/DOB_Job_Application_Filings.csv',header=TRUE,stringsAsFactors=FALSE)
+
+dob<-read.csv('~/Documents/CUNY/data_class/project2/DOB_Job_Application_Filings.csv',header=TRUE,stringsAsFactors=FALSE)
+
+#reveals there are no date types in the raw dataset
+#table(sapply(dob,class))
+```
+First, discover significant "Job Type" by associating "Initial Cost", "Applicant Professional Title", "Horizontal Enlrgmt", "Vertical Enlrgmt".
+
+```{r}
+cols<-"(Job|Bin|Job.Type|Initial.Cost|Applicant.Professional.Title|Horizontal.Enlrgmt|Vertical.Enlrgmt)"
+
+h<-str_detect(names(dob),cols)
+new.names<-names(dob)[h]
+
+dob.1<-dob[,h]
+
+#make numeric fields where warranted:
+
+dob.2<-dob.1 %>%
+  mutate(cln.cost=unlist(str_extract_all(Initial.Cost,"[[:digit:]]{1,}?(?=\\.)")), cln.cost=as.numeric(cln.cost)) %>%
+  select(-Initial.Cost)
+```
+
+What is the distribution of job types per building having horizontal and vertical enlargement?
+```{r}
+#anyNA(dob.1$Horizontal.Enlrgmt) #blanks were imported as empty strings ~ ""
+'"
+dob.2 %>%
+  filter(Horizontal.Enlrgmt!="") %>%
+  select(Horizontal.Enlrgmt) %>%
+  head()
+"'
+
+dob.2 %>%
+  filter(Horizontal.Enlrgmt=="Y" | Vertical.Enlrgmt=="Y") %>%
+  select(Job.Type) %>%
+  table()
+```
+
+Per DOB documentation*
+*Alt-1:* An alteration that requires an amended or new Certificate of Occupancy. Some examples include: changing the occupancy of a single family home to a two-family home, changing the use of a facility from commercial to residential, or changing the building's egress.   
+*Alt-2:* An alteration which does not require an amended C/O, but includes multiple work types, such as plumbing and construction.   
+*Alt-3:* Involves one work type such as a curb cut or a construction fence.   
+*NB:* New Building   
+*SI:* Subdivision improved - one lot is being broken into several smaller lots    
+*SC:* Subdivision condominium - the division of a tax lot into several smaller tax lots allowing each condo to have its own tax lot.
+
+
+Which job types are the most valuable? One way to do this is to run percentiles per job type. In a future study, we may perform a regression analysis to determine if there are other possible variables that determine cost.
+```{r}
+dob.sum<-dob.2 %>%
+  group_by(Job.Type) %>%
+  do(data.frame(t(quantile(.$cln.cost,probs=seq(0,1,.25),na.rm=FALSE))))
+
+dob.sum
+```
+
+Running a quantiles check is tricky, because most alterations do not report a dollar cost value. We can see from the table how 'A1' and 'A2' most often report a dollar cost (because percetiles are affected by frequency of filings). However, it is apparent that all three categories can report significant cost, and should not be discarded. We learn that demolitions (DM) and new buildings (NB) - are not associated with a cost, which is misleading if evaluated independently. Although these do not have costs, they also, should not be discarded from the larger study. Perhaps they are associated with alterations.
+
+We re-run the percentile calculation filtering for those jobs having dollar costs, to determine whether there are material differences in the cost of alteration jobs.
+```{r}
+#check these results
+test<-dob.2 %>%
+  filter(Job.Type %in% c('A1','A2','A3'), cln.cost>0) %>%
+  select(Job.Type,cln.cost)
+
+test %>%
+  group_by(Job.Type) %>%
+  do(data.frame(t(quantile(.$cln.cost,probs=seq(0,1,.25),na.rm=FALSE))))
+```
+For buildings filing an alteration, is it typical to observe more than one Alteration? Of those, do more than one have value?
+```{r}
+no.jobs<-dob.2 %>%
+  select(Job..,Bin..,Job.Type,cln.cost) %>%
+  filter(Job.Type %in% c('A1','A2','A3')) %>%
+  group_by(Bin..) %>%
+  summarise(no.filings=length(Job.Type), dollar=length(Job.Type[cln.cost>0]))
+
+head(no.jobs)
+```
+Looking at the sample output, there are indeed many building with multiple job filings and in most cases, there is assigned cost to each of the jobs.
+
+Plot a distribution of BINs having more than one job furthermore having costs associated with multiple jobs.   Because we do not want to penalize
+```{r}
+props<-no.jobs %>% 
+  filter(no.filings>1) %>%
+  mutate(props=sqrt(dollar/no.filings))
+
+head(props)
+
+ggplot(props,aes(props))+geom_histogram()+ggtitle('Proportion of filings w/Value')
+```
+
+###Analysis on BINs having multiple jobs:
+
+For buildings with multiple job numbers, how do we choose the highest priority or most relevant for a study on physical activity in a particular area - assuming we could geo code addresses? Looking at our results, although alteration types A2 and A3 report cost less frequently than A1, we cannot discard. For a cost and physical activity study, it is safer to include any and all alterations, and simply aggregate their costs.
+
+```{r}
+aggd<-dob.2 %>%
+  select(Job..,Bin..,Job.Type,cln.cost) %>%
+  group_by(Bin..) %>%
+  summarise(no.filings=length(Job.Type), total.cost=sum(cln.cost,na.rm=TRUE))
+
+head(aggd)
+```
+
+###Future Study
+Is there a relationship between number of jobs filed and estimated cost? 
+
+
+*https://www1.nyc.gov/assets/buildings/pdf/pw1_userguide.pdf
