@@ -1,0 +1,71 @@
+---
+title: "scrapingAssignment"
+author: "Luis Calleja"
+date: "October 16, 2016"
+output: html_document
+---
+For this assignment, we create and parse an XML, JSON and html file all having the same data.
+```{r,warning=FALSE,message=FALSE}
+library(XML);library(jsonlite);library(plyr);library(tidyr);
+library(dplyr)
+```
+
+
+## XML File Parsing:
+```{r}
+my.file<-'~/Documents/CUNY/data_class/week7-xml_json/books.xml'
+parse.file<-xmlParse(file=my.file) #doesn't allow for indexing
+parse.file<-xmlTreeParse(file=my.file)
+root<-xmlRoot(parse.file) #allows for indexing of nodes
+
+child.1<-xmlChildren(root)
+
+#retrieve attributes:
+y<-sapply(child.1,function(x) unlist(sapply(xmlChildren(x),xmlAttrs)))
+
+k<-sapply(child.1,function(x) unlist(sapply(xmlChildren(x),xmlValue)))
+k.1<-data.frame(k)
+k.2<-k.1 %>%
+  t() %>%
+  data.frame()
+
+j<-data.frame(t(y),check.names=FALSE)
+df.xml<-cbind(k.2,j)
+```
+
+## JSON Parsing:
+```{r, warning=FALSE}
+file<-'~/Documents/CUNY/data_class/week7-xml_json/books_formatted.json'
+#isValidJSON(file)
+rfile<-fromJSON(file)
+rfile
+df.json<-rfile[[1]]
+df.json.1<-df.json %>%
+  select(title,length,academic) %>%
+  cbind(df.json$authors[,1]) %>%
+  cbind(df.json$authors[,2])
+  
+
+names(df.json.1)[4:5]<-c('authors.1','authors.2')
+
+```
+
+## HTML Parsing:
+```{r}
+my.file<-'~/Documents/CUNY/data_class/week7-xml_json/books.html'
+htm<-xmlParse(my.file,isHTML = TRUE)
+htm.1<-htmlTreeParse(my.file)
+root<-xmlRoot(htm.1) #allows for indexing of nodes
+
+blah<-readHTMLTable(htm)
+html.df<-blah[[1]]
+html.df
+```
+
+## Dataframe Comparison
+The three dataframes are the same - they contain the same data, datatype and structure. We prove this by looking at the dimensions and column names for each.
+```{r}
+lapply(list(html.df,df.json.1,df.xml),is.data.frame)
+lapply(list(html.df,df.json.1,df.xml),names)
+lapply(list(html.df,df.json.1,df.xml),dim)
+```

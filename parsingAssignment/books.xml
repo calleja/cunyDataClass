@@ -1,0 +1,27 @@
+<!--Test whether my XML document is well formed: http://www.xmlvalidation.com/-->
+
+<books>
+<book id="1">
+<title>Introduction to Fixed Income Analytics</title>
+<authors first="Frank Fabozzi" second="Steven Mann"/>
+<length>321</length>
+<academic>no</academic>
+</book>
+
+<book id="2">
+<title>Calculus</title>
+<authors first="Larson" second="Edwards"/>
+<length>1141</length>
+<academic>yes</academic>
+</book>
+
+<book id="3">
+<title>Data Analysis Using Regression and Multilevel/Hierarchical Models</title>
+<authors first="Andrew Gelman" second="Jennifer Hill"/>
+<length>592</length>
+<academic>yes</academic>
+</book>
+
+
+
+</books>
