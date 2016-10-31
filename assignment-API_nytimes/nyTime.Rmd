@@ -1,0 +1,93 @@
+---
+title: "Week 9 - API Assignment"
+author: "Luis Calleja"
+date: "October 30, 2016"
+output: html_document
+---
+```{r, warning=FALSE, message=FALSE}
+library(httr) #use the 'GET" function
+library(XML);library(RCurl); library(RJSONIO)
+library(stringr); library(reshape); library(plyr)
+```
+
+```{r, echo=FALSE}
+api.key<-'66c080ea20fc4073ba89ca54b012dc11'
+```
+
+We use the NY Times API to get information on the NY Times best sellers list.
+
+We form the 'GET' statement by manipulating the URL to include the list-name and api-key parameter.
+
+First, we need the relevant list-names from NY Times.
+```{r}
+first<-"https://api.nytimes.com/svc/books/v3/lists/names.json"
+retrieve<-getURL(first)
+
+ret.json<-fromJSON(retrieve)
+retr<-function(x){
+  inter<-unlist(x) 
+  return(inter["list_name_encoded"])
+}
+
+#each element in this vector is a permissable list to 'GET'
+name.lists<-sapply(ret.json[4][[1]],function(x) retr(x))
+```
+
+The response is a JSON document, which we parse and convert to a list object. We select a random list-name from the above name.lists vector of relevant NY Times book list names and parse that response.
+```{r}
+bs.list.base<-'http://api.nytimes.com/svc/books/v3/lists.json'
+url2<-paste0(bs.list.base,'?list=',name.lists[[5]],'&api-key=',api.key)
+retrieve2<-getURI(url2)
+#parse JSON
+raw2<-fromJSON(retrieve2)
+```
+
+15 books are returned...
+```{r}
+length(raw2$results)
+```
+
+
+There are three levels of lists (nested lists) created by the JSON parsing function:   
+-> books   
+-> book/list-related information   
+-> detailed information on the book
+
+The information is unstructured, there are varying amounts of information on each book.
+In order to get all the information into one structured dataframe, we have to facilitate for the elements with the greatest amount of subelements. There are 48 elements in the largest sublist.
+
+Plot the varying lengths:
+```{r}
+y<-lapply(raw2$results,unlist)
+#appear to be differing lengths
+g<-sapply(y,length)
+plot(g)
+```
+
+We create this by manipulating column headers. Once we rename the columns, we use an 'rbind'-like function to concatenate dataframes we previously created of the lists.
+```{r}
+#rename all the list elements - stored as list of lists
+rename<-function(x) {
+  d<-unlist(sapply(x,lapply,length))
+  g<-character() #empty vector
+  #first part of the new column name is the parent list element name... we repeate this name for as many subelements there are
+  for (i in 1:length(d)){ 
+    g<-c(g,rep(names(d[i]),d[[i]])) #a vector of new names
+    
+  }
+  #rename the columns
+  trem<-unlist(x)
+  #append parent names with subelement names; this faciliates rbinding later
+  names(trem)<-paste(g,names(trem),sep=".") 
+  trem<-data.frame(t(trem),stringsAsFactors = F)
+  return(trem)
+}
+```
+
+Apply the function to create the dataframe.
+```{r}
+u<-lapply(raw2$results,rename) #works
+rh<-do.call(rbind.fill,u)
+
+dim(rh)
+```
