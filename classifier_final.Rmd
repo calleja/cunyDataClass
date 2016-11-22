@@ -1,0 +1,126 @@
+---
+title: "Text Classifier"
+author: "Luis Calleja"
+date: "November 17, 2016"
+output: html_document
+---
+## Email Classifier
+```{r}
+library(SnowballC)
+library(readr)
+library(stringr)
+library(tm)
+library(RTextTools)
+library(dplyr)
+```
+
+Given directories containing html files, iterate through all files in directory:
+```{r}
+ham.folder<-'~/Documents/CUNY/data_class/week9-tm/easy_ham/'
+spam.folder<-'~/Documents/CUNY/data_class/week9-tm/spam/'
+y<-list.files(ham.folder)
+u<-list.files(spam.folder)
+```
+
+For our method, we will contain all the text from the html files into a dataframe. This is in contrast to directly creating a Corpus.
+
+These functions extract and parse the html files. In our experiment, we apply the classification algorithms to the text associated with the identity of the sender and later, the text of the message. We apply different regular expressions to accomplish this...
+```{r}
+#retrieve sender info
+df_s<-function(files,home){
+  h<-read_file(paste0(home,files))
+  text<-str_split(h,"\n\n")
+  pos<-unlist(str_extract_all(text[[1]][1],"(From|\nFrom|from).+?(?=\\n[ [:alnum:]])"))
+  text0<-paste(pos,collapse=" ")
+  text1<-gsub("\n"," ",text0)
+}
+
+#retrieve message in email
+df_t<-function(files,home){
+  h<-read_file(paste0(home,files))
+  text<-str_split(h,"\n\n")
+  text<-text[[1]][-1]
+  text0<-paste(text,collapse=" ")
+  text1<-gsub("\n"," ",text0)
+  return(text1)
+}
+```
+
+We apply these functions, then create a dataframe with the extracted text, and the appropriate 'spam'/'ham' label.
+```{r}
+#create vectors from the sender info
+ham.vec<-unlist(sapply(y,df_s,ham.folder))
+ham.label<-rep('ham',length(y))
+spam.vec<-unlist(sapply(u,df_s,spam.folder))
+spam.label<-rep('spam',length(u))
+
+#repeat the above steps to create vectors of the message text
+ham.vec.t<-unlist(sapply(y,df_t,ham.folder))
+ham.label<-rep('ham',length(y))
+spam.vec.t<-unlist(sapply(u,df_t,spam.folder))
+spam.label<-rep('spam',length(u))
+
+#create a df having columns of text of the sender portion of message and the email content
+df<-as.data.frame(rbind(cbind(ham.label,ham.vec),cbind(spam.label,spam.vec)),stringsAsFactors = F)
+df.1<-data.frame(cbind(df,c(ham.vec.t,spam.vec.t)))
+names(df.1)<-c('label','sender','message')
+df.2<-df.1 %>%
+  mutate(message=as.character(message))
+```
+
+###Begin applying algorithms
+With our dataframes complete, we prep the arguments for the algorithms. We create one matrix for each the sender info and the email body:
+```{r}
+doc_matrix_sen<-create_matrix(df.2$sender,language = "english",removeNumbers = T,stemWords = T,removeSparseTerms = .998)
+#error after error... won't work at all
+doc_matrix_mes<-create_matrix(df.2$message[1:100],language = "english",removeNumbers = T,stemWords = F,removeSparseTerms = .998)
+```
+
+Compile series for test and training data - serving as input to the algorithms.
+```{r}
+gh<-1:round(length(y)*.7)
+yt<-length(y):I(length(y)+round(length(u)*.7))
+#min(gh);max(gh);min(yt);max(yt)
+ma<-seq(nrow(df))[!seq(nrow(df)) %in% c(gh,yt)]
+```
+
+Create container for the text of the sender
+```{r}
+container_sen<-create_container(doc_matrix_sen,labels=as.numeric(factor(df$label)), 
+                            trainSize=c(gh,yt), testSize = ma, 
+                            virgin=F)
+
+#create container for the text of the message
+container_mes<-create_container(doc_matrix_mes,labels=as.numeric(factor(df$label)), 
+                            trainSize=c(gh,yt), testSize = ma, 
+                            virgin=F)
+```
+
+Run the train models, and later the test models:
+```{r}
+SVM_sen<-train_model(container_sen,"SVM")
+TREE_sen<-train_model(container_sen,"TREE")
+MAXENT_sen<-train_model(container_sen,"MAXENT")
+SVM_mes<-train_model(container_mes,"SVM")
+TREE_mes<-train_model(container_mes,"TREE")
+MAXENT_mes<-train_model(container_mes,"MAXENT")
+
+svm_classify_sen<-classify_model(container_sen,SVM_sen)
+tree_classify_sen<-classify_model(container_sen,TREE_sen)
+maxent_classify_sen<-classify_model(container_sen,MAXENT_sen)
+svm_classify_mes<-classify_model(container_sen,SVM_mes)
+tree_classify_mes<-classify_model(container_sen,TREE_mes)
+maxent_classify_mes<-classify_model(container_sen,MAXENT_mes)
+```
+
+Run analytics and produce statistics on predictions and accuracy.
+```{r}
+analytics_sen<-create_analytics(container,cbind(svm_classify_sen,
+                                            tree_classify_sen,
+                                            maxent_classify_sen))
+analytics_mes<-create_analytics(container,cbind(svm_classify_mes,
+                                                tree_classify_mes,
+                                                maxent_classify_mes))
+
+summary(analytics)
+```
